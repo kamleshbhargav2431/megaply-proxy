@@ -161,8 +161,9 @@ const server = http.createServer(async (req, res) => {
       let html = (await readAll(up)).toString();
       html = rewrite(html);
       if (html.includes("<head>")) {
-        html = html.replace("<head>",
-          "<head><meta name=\"referrer\" content=\"no-referrer-when-downgrade\">"
+        html = html.replace("<head>", "<head>" +
+          "<meta name=\"referrer\" content=\"unsafe-url\">" +
+          "<script>Object.defineProperty(document,'referrer',{get:function(){return'https://anikoto.to/';}});</script>"
         );
       }
       h["content-type"] = "text/html; charset=UTF-8";
