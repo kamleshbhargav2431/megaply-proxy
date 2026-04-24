@@ -14,7 +14,7 @@ const CORS = {
   "Access-Control-Expose-Headers": "Content-Length, Content-Range, Content-Type",
 };
 
-function proxyFetch(target, method, extra = {}, body = null) {
+function proxyFetch(target, method, extra, body) {
   return new Promise((resolve, reject) => {
     const agent = new HttpsProxyAgent(PROXY);
     const url = new URL(target);
@@ -29,7 +29,6 @@ function proxyFetch(target, method, extra = {}, body = null) {
         "User-Agent": UA,
         Accept: "*/*",
         "Accept-Language": "en-US,en;q=0.9",
-        ...extra,
       },
       agent,
     }, resolve);
@@ -54,9 +53,7 @@ function shouldSkip(d) {
   return SKIP.some(s => d === s || d.endsWith("." + s));
 }
 
-// Rewrite JSON-escaped (https:\/\/) AND normal (https://) URLs
 function rewrite(text) {
-  // JSON-escaped
   text = text.replace(
     /https?:\\\/\\\/([^\\\/"']+)((?:\\\/|[^"'\s\r\n])*)/g,
     (_m, d, r) => {
@@ -66,7 +63,6 @@ function rewrite(text) {
       return ("/cdn/" + d + c).replace(/\//g, "\\/");
     }
   );
-  // Normal
   text = text.replace(
     /https?:\/\/([^\/\s"']+)([^\s\r\n"'"]*)/g,
     (_m, d, pq) => {
@@ -91,7 +87,7 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://" + req.headers.host);
 
   try {
-    // ===== /cdn/DOMAIN/path — proxy small CDN files with referer spoof =====
+    // ===== /cdn/DOMAIN/path =====
     if (url.pathname.startsWith("/cdn/")) {
       const full = url.pathname.replace("/cdn/", "");
       const idx = full.indexOf("/");
@@ -102,14 +98,14 @@ const server = http.createServer(async (req, res) => {
       const p = full.substring(idx);
       const target = "https://" + host + p + url.search;
 
-      const up = await proxyFetch(target, "GET", { Range: req.headers.range });
+      const up = await proxyFetch(target, "GET", {});
       const ct = up.headers["content-type"] || "";
       const h = { ...CORS };
       for (const k of ["content-type", "content-length", "content-range"]) {
         if (up.headers[k]) h[k] = up.headers[k];
       }
 
-      // m3u8 — rewrite segment URLs to absolute CDN URLs (browser fetches direct)
+      // m3u8 — rewrite segments to absolute CDN URLs
       if (ct.includes("mpegurl") || ct.includes("m3u8") || p.endsWith(".m3u8")) {
         let m3u8 = (await readAll(up)).toString();
         const base = target.substring(0, target.lastIndexOf("/") + 1);
@@ -117,7 +113,6 @@ const server = http.createServer(async (req, res) => {
         m3u8 = m3u8.split("\n").map(line => {
           const t = line.trim();
           if (!t || t.startsWith("#")) {
-            // Rewrite URI="..." inside tags like #EXT-X-KEY, #EXT-X-MAP
             if (t.includes('URI="')) {
               return t.replace(/URI="([^"]+)"/g, function(_m, uri) {
                 if (uri.startsWith("http")) return 'URI="' + uri + '"';
@@ -127,7 +122,6 @@ const server = http.createServer(async (req, res) => {
             }
             return line;
           }
-          // Standalone segment URL — make absolute
           if (t.startsWith("http")) return line;
           if (t.startsWith("/")) return "https://" + host + t;
           return base + t;
@@ -138,16 +132,15 @@ const server = http.createServer(async (req, res) => {
         return reply(res, 200, h, m3u8);
       }
 
-      // Small files — stream through
       res.writeHead(up.statusCode || 200, h);
       up.pipe(res);
       return;
     }
 
-    // ===== Everything else → proxy megaplay.buzz =====
+    // ===== Everything else → megaplay.buzz =====
     const target = "https://megaplay.buzz" + url.pathname + url.search;
 
-    let bodyBuf = null;
+    var bodyBuf = null;
     if (req.method === "POST") {
       bodyBuf = await new Promise(function(r) {
         var c = [];
@@ -156,17 +149,14 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    const up = await proxyFetch(target, req.method,
-      { Range: req.headers.range, "Content-Type": req.headers["content-type"] },
-      bodyBuf
-    );
+    const up = await proxyFetch(target, req.method, {}, bodyBuf);
     const ct = up.headers["content-type"] || "";
     const h = { ...CORS };
     for (const k of ["content-type", "content-length", "content-range"]) {
       if (up.headers[k]) h[k] = up.headers[k];
     }
 
-    // HTML — rewrite + inject referrer tag so browser sends correct referer on direct requests
+    // HTML
     if (ct.includes("text/html")) {
       let html = (await readAll(up)).toString();
       html = rewrite(html);
@@ -179,7 +169,7 @@ const server = http.createServer(async (req, res) => {
       return reply(res, up.statusCode || 200, h, html);
     }
 
-    // JSON (getSources response)
+    // JSON
     if (ct.includes("json")) {
       let json = (await readAll(up)).toString();
       json = rewrite(json);
@@ -201,7 +191,7 @@ const server = http.createServer(async (req, res) => {
       return reply(res, up.statusCode || 200, h, js);
     }
 
-    // Static assets — stream through
+    // Static assets
     res.writeHead(up.statusCode || 200, h);
     up.pipe(res);
 
