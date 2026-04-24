@@ -19,17 +19,19 @@ function proxyFetch(target, method, extra, body) {
     const agent = new HttpsProxyAgent(PROXY);
     const url = new URL(target);
     const lib = url.protocol === "https:" ? https : http;
+    const reqHeaders = {
+      Referer: REFERER,
+      Origin: "https://anikoto.to",
+      "User-Agent": UA,
+      Accept: "*/*",
+      "Accept-Language": "en-US,en;q=0.9",
+    };
+    if (method === "POST") reqHeaders["X-Requested-With"] = "XMLHttpRequest";
     const req = lib.request({
       hostname: url.hostname,
       path: url.pathname + url.search,
       method,
-      headers: {
-        Referer: REFERER,
-        Origin: "https://anikoto.to",
-        "User-Agent": UA,
-        Accept: "*/*",
-        "Accept-Language": "en-US,en;q=0.9",
-      },
+      headers: reqHeaders,
       agent,
     }, resolve);
     req.on("error", reject);
