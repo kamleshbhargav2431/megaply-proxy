@@ -157,13 +157,17 @@ const server = http.createServer(async (req, res) => {
     }
 
     // HTML
+    // HTML
     if (ct.includes("text/html")) {
       let html = (await readAll(up)).toString();
       html = rewrite(html);
       if (html.includes("<head>")) {
         html = html.replace("<head>", "<head>" +
-          "<meta name=\"referrer\" content=\"unsafe-url\">" +
-          "<script>Object.defineProperty(document,'referrer',{get:function(){return'https://anikoto.to/';}});</script>"
+          '<meta name="referrer" content="unsafe-url">' +
+          "<script>" +
+          "Object.defineProperty(document,'referrer',{get:function(){return'https://anikoto.to/';}});" +
+          "try{var _f={};Object.defineProperty(window,'top',{get:function(){return _f;}});Object.defineProperty(window,'parent',{get:function(){return _f;}});}catch(e){}" +
+          "</script>"
         );
       }
       h["content-type"] = "text/html; charset=UTF-8";
